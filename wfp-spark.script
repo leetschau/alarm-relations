@@ -1,0 +1,68 @@
+import Math.ceil
+
+val MIN_SUP = 0.0003
+val MIN_CONF = 0
+val MAX_RELATION_ORDER = 3
+val DATA_FILE = "input"
+val SEP = "\001"
+val WEI_IDX = 4
+val MIN_INT_ID_LEN = 5
+
+val rawData = sc.textFile(DATA_FILE).distinct
+val data = rawData.filter(x => x.split(SEP)(0).split("\t")(1).split("_")(0).size > MIN_INT_ID_LEN)
+val weight = data.map(x => (x.split(SEP)(0).split("\t")(1), x.split(SEP)(WEI_IDX).toFloat)).distinct.toArray.toMap
+val wids = data.map(_.split(SEP)(0).split("\t")(0))
+val T = wids.distinct.count
+val MAX_ITEM = wids.map(w => (w,1)).reduceByKey(_+_).map(_._2).max
+val item_count = data.map(_.split(SEP)(0).split("\t")(1)).map(w => (w,1)).reduceByKey(_+_)
+
+def bmin(key: String): Double = {
+    val sort_cnt = weight.toList.sortBy(_._2)(Ordering[Float].reverse)
+    val max_map = sort_cnt.take(MAX_ITEM).toMap
+    if (max_map.getOrElse(key, -1) != -1) {
+        ceil(MIN_SUP * T / sort_cnt.take(MAX_ITEM).map(_._2).sum)
+    } else {
+        ceil(MIN_SUP * T / (sort_cnt.take(MAX_ITEM - 1).map(_._2).sum + weight.get(key).get))
+    }
+}
+
+val flt_sup_cnt = item_count.filter(x => bmin(x._1) <= x._2).toArray.toMap
+
+val alm_with_sc = data.map(x => (x, flt_sup_cnt.getOrElse(x.split(SEP)(0).split("\t")(1), -1)))
+val flt_alms = alm_with_sc.filter(_._2 > 0)
+
+val devide_to_window = flt_alms.groupBy(x => x._1.split(SEP)(0).split("\t")(0))
+
+val sort_in_window = devide_to_window.map(x => x._2.toList.sortBy(_._2).reverse)
+
+val id_in_window = sort_in_window.map(x => x.map(y => y._1.split(SEP)(0).split("\t")(1)))
+
+def buildBranch(inp: List[String]): List[String] = {
+  val baseArr = (1 to inp.size).map(inp.take(_))
+  baseArr.map(x => x.reduce(_ + "," + _)).toList
+}
+val str_tree = id_in_window.flatMap(buildBranch)
+val node_cnt_map = str_tree.map(w => (w,1)).reduceByKey(_+_).toArray.toMap
+
+def largerThanMinSup(inp: String): Boolean = {
+  val weiSum = inp.split(",").map(weight(_)).sum
+  val nodeCnt = node_cnt_map(inp)
+  weiSum * nodeCnt / T > MIN_SUP
+}
+val flt_tree = str_tree.filter(largerThanMinSup)
+
+val windows = data.groupBy(_.split("\t")(0))
+val window_set = windows.map(x=> x._2.map(_.split(SEP)(0).split("\t")(1)).toSet).toArray
+def getSupCnt(inp: Set[String]): Long = {
+    window_set.filter(inp subsetOf _).size
+}
+def largerThanMinConf(inp: String): Set[(Set[String], Set[String], Double)] = {
+    val inp_set = inp.split(",").toSet
+    val all_subsets = inp_set.subsets.toSet - Set() - inp.split(",").toSet
+    val conf_subsets = all_subsets.filter(x => getSupCnt(x) * 1.0 / getSupCnt(inp_set) >= MIN_CONF)
+    conf_subsets.map(x=> (x, inp_set -- x, getSupCnt(x) * 1.0 / getSupCnt(inp_set)))
+}
+
+val small_tree = flt_tree.filter(_.split(",").size <= MAX_RELATION_ORDER)
+val rule_sets = small_tree.flatMap(largerThanMinConf)
+
