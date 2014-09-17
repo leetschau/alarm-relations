@@ -3,18 +3,18 @@ import Math.ceil
 val MIN_SUP = 0.0003
 val MIN_CONF = 0
 val MAX_RELATION_ORDER = 3
-val DATA_FILE = "input"
+val DATA_FILE = "datamine/data_m/alarm_bd.txt"
 val SEP = "\001"
 val WEI_IDX = 4
 val MIN_INT_ID_LEN = 5
 
 val rawData = sc.textFile(DATA_FILE).distinct
-val data = rawData.filter(x => x.split(SEP)(0).split("\t")(1).split("_")(0).size > MIN_INT_ID_LEN)
-val weight = data.map(x => (x.split(SEP)(0).split("\t")(1), x.split(SEP)(WEI_IDX).toFloat)).distinct.toArray.toMap
-val wids = data.map(_.split(SEP)(0).split("\t")(0))
+val data = rawData.filter(x => x.split(SEP)(1).split("_")(0).size > MIN_INT_ID_LEN)
+val weight = data.map(x => (x.split(SEP)(1), x.split(SEP)(WEI_IDX).toFloat)).distinct.toArray.toMap
+val wids = data.map(_.split(SEP)(0))
 val T = wids.distinct.count
 val MAX_ITEM = wids.map(w => (w,1)).reduceByKey(_+_).map(_._2).max
-val item_count = data.map(_.split(SEP)(0).split("\t")(1)).map(w => (w,1)).reduceByKey(_+_)
+val item_count = data.map(_.split(SEP)(1)).map(w => (w,1)).reduceByKey(_+_)
 
 def bmin(key: String): Double = {
     val sort_cnt = weight.toList.sortBy(_._2)(Ordering[Float].reverse)
@@ -28,14 +28,14 @@ def bmin(key: String): Double = {
 
 val flt_sup_cnt = item_count.filter(x => bmin(x._1) <= x._2).toArray.toMap
 
-val alm_with_sc = data.map(x => (x, flt_sup_cnt.getOrElse(x.split(SEP)(0).split("\t")(1), -1)))
+val alm_with_sc = data.map(x => (x, flt_sup_cnt.getOrElse(x.split(SEP)(1), -1)))
 val flt_alms = alm_with_sc.filter(_._2 > 0)
 
-val devide_to_window = flt_alms.groupBy(x => x._1.split(SEP)(0).split("\t")(0))
+val devide_to_window = flt_alms.groupBy(x => x._1.split(SEP)(0))
 
 val sort_in_window = devide_to_window.map(x => x._2.toList.sortBy(_._2).reverse)
 
-val id_in_window = sort_in_window.map(x => x.map(y => y._1.split(SEP)(0).split("\t")(1)))
+val id_in_window = sort_in_window.map(x => x.map(y => y._1.split(SEP)(1)))
 
 def buildBranch(inp: List[String]): List[String] = {
   val baseArr = (1 to inp.size).map(inp.take(_))
@@ -51,8 +51,8 @@ def largerThanMinSup(inp: String): Boolean = {
 }
 val flt_tree = str_tree.filter(largerThanMinSup)
 
-val windows = data.groupBy(_.split("\t")(0))
-val window_set = windows.map(x=> x._2.map(_.split(SEP)(0).split("\t")(1)).toSet).toArray
+val windows = data.groupBy(_.split(SEP)(0))
+val window_set = windows.map(x=> x._2.map(_.split(SEP)(1)).toSet).toArray
 def getSupCnt(inp: Set[String]): Long = {
     window_set.filter(inp subsetOf _).size
 }
