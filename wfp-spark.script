@@ -1,69 +1,79 @@
 import Math.ceil
 
-val MIN_SUP = 0.0003
-val MIN_CONF = 0
-val MAX_RELATION_ORDER = 3
-val DATA_FILE = "input"
+val MIN_SUP = 0.001
+val MIN_CONF = 0.1
+val MAX_RELATION_ORDER = 4
+val DATA_FILE = "/user/boco/datamine/alarm_bd_05.txt"
 val SEP = "\001"
 val WEI_IDX = 5
 val MIN_INT_ID_LEN = 5
 
 val rawData = sc.textFile(DATA_FILE).distinct
-val data = rawData.filter(x => x.split(SEP)(1).split("_")(0).size > MIN_INT_ID_LEN)
-val weight = data.map(x => (x.split(SEP)(1), x.split(SEP)(WEI_IDX).toFloat)).distinct.toArray.toMap
-val wids = data.map(_.split(SEP)(0))
-val T = wids.distinct.count
-val MAX_ITEM = wids.map(w => (w,1)).reduceByKey(_+_).map(_._2).max
+val data = rawData.filter(x => x.split(SEP)(1).split("_")(0).size > MIN_INT_ID_LEN)   
 val item_count = data.map(_.split(SEP)(1)).map(w => (w,1)).reduceByKey(_+_)
+val wids = data.map(_.split(SEP)(0))
+val MAX_ITEM = wids.map(w => (w,1)).reduceByKey(_+_).map(_._2).max
+val T = wids.distinct.count
 
-def bmin(key: String): Double = {
-    val sort_cnt = weight.toList.sortBy(_._2)(Ordering[Float].reverse)
-    val max_map = sort_cnt.take(MAX_ITEM).toMap
-    if (max_map.getOrElse(key, -1) != -1) {
-        ceil(MIN_SUP * T / sort_cnt.take(MAX_ITEM).map(_._2).sum)
+val weight = data.map(x => (x.split(SEP)(1), x.split(SEP)(WEI_IDX).toFloat)).distinct
+val id_cnt_wei = item_count.join(weight).map(x => (x._1, x._2._1, x._2._2))
+val wei_id_cnt = id_cnt_wei.map(x => (x._3, x._1, x._2))
+val topN = wei_id_cnt.top(MAX_ITEM)
+val min_wei = topN(topN.length -1)._1
+val sum_wei = topN.map(x => x._1).sum
+def bmin(key: String, wei: Float): Double = {
+    if (wei >= min_wei) {
+        ceil(MIN_SUP * T / sum_wei)
     } else {
-        ceil(MIN_SUP * T / (sort_cnt.take(MAX_ITEM - 1).map(_._2).sum + weight.get(key).get))
+        ceil(MIN_SUP * T / (sum_wei - min_wei + wei))
     }
 }
 
-val flt_sup_rdd = item_count.filter(x => bmin(x._1) <= x._2)
-val flt_sup_cnt = flt_sup_rdd.toArray.toMap
+val flt_sup_cnt = id_cnt_wei.filter(x => bmin(x._1, x._3) <= x._2)
 
-val alm_with_sc = data.map(x => (x, flt_sup_cnt.getOrElse(x.split(SEP)(1), -1)))
-val flt_alms = alm_with_sc.filter(_._2 > 0)
+val almid_alm = data.map(x => (x.split(SEP)(1), x))
+val alm_cnt = almid_alm.join(item_count)
+val min_cnt = flt_sup_cnt.map(_._2).min
+val flt_alm_cnt = alm_cnt.filter(x => x._2._2 >= min_cnt)
 
+val flt_alms = flt_alm_cnt.map(_._2)
 val devide_to_window = flt_alms.groupBy(x => x._1.split(SEP)(0))
 
 val sort_in_window = devide_to_window.map(x => x._2.toList.sortBy(_._2).reverse)
 
 val id_in_window = sort_in_window.map(x => x.map(y => y._1.split(SEP)(1)))
 
-def buildBranch(inp: List[String]): List[String] = {
+def buildBranch(inp: List[String]): IndexedSeq[String] = {
   val baseArr = (1 to inp.size).map(inp.take(_))
-  baseArr.map(x => x.reduce(_ + "," + _)).toList
+  baseArr.map(x => x.reduce(_ + "," + _))
 }
 val str_tree = id_in_window.flatMap(buildBranch)
-val node_cnt_map = str_tree.map(w => (w,1)).reduceByKey(_+_).toArray.toMap
+val small_tree = str_tree.distinct.filter(_.split(",").size <= MAX_RELATION_ORDER)
+val branch_cnt = str_tree.map(w => (w,1)).reduceByKey(_+_)
 
-def largerThanMinSup(inp: String): Boolean = {
-  val weiSum = inp.split(",").map(weight(_)).sum
-  val nodeCnt = node_cnt_map(inp)
-  weiSum * nodeCnt / T > MIN_SUP
-}
-val flt_tree = str_tree.filter(largerThanMinSup)
+val node_branch = small_tree.flatMap(x => x.split(",").map(y => (y, x)))
+val branch_wei_sum = node_branch.join(weight).map(x => (x._2._1, x._2._2)).reduceByKey(_+_)
+val branch_sup = branch_wei_sum.join(branch_cnt).map(x => (x._1, x._2._1 * x._2._2))
+val flt_tree = branch_sup.filter(_._2 / T > MIN_SUP).map(_._1)
 
-val windows = data.groupBy(_.split(SEP)(0))
-val window_set = windows.map(x=> x._2.map(_.split(SEP)(1)).toSet).toArray
-def getSupCnt(inp: Set[String]): Long = {
-    window_set.filter(inp subsetOf _).size
-}
-def largerThanMinConf(inp: String): Set[(Set[String], Set[String], Double)] = {
-    val inp_set = inp.split(",").toSet
-    val all_subsets = inp_set.subsets.toSet - Set() - inp.split(",").toSet
-    val conf_subsets = all_subsets.filter(x => getSupCnt(x) * 1.0 / getSupCnt(inp_set) >= MIN_CONF)
-    conf_subsets.map(x=> (x, inp_set -- x, getSupCnt(x) * 1.0 / getSupCnt(inp_set)))
-}
+val branch_sets = flt_tree.map(x => (x, x.split(",").toSet.subsets.toSet - Set() - x.split(",").toSet))
+val branch_subsets = branch_sets.map(x => (x._1, x._2.map(_.reduce(_ + "," + _))))
+val branch_subbran = branch_subsets.flatMap(x => x._2.map(y => (x._1, y)))
 
-val small_tree = flt_tree.filter(_.split(",").size <= MAX_RELATION_ORDER)
-val rule_sets = small_tree.flatMap(largerThanMinConf)
-rule_sets.saveAsTextFile("wfp-rules")
+val window_sets = id_in_window.map(_.toSet)
+
+
+val all_branch_sets = branch_sets.flatMap(x => Set(x._1.split(",").toSet) ++ x._2)
+val all_bran_sets_merge = all_branch_sets.map(_.reduce(_ + "," + _)).distinct.map(_.split(",").toSet)
+val subset_winset = all_bran_sets_merge.cartesian(window_sets).filter(x => x._1 subsetOf x._2)
+val subsets_cnt = subset_winset.groupByKey().map(x => (x._1, x._2.size))
+
+val branch_join_subset_cnt = branch_subbran.map(x => (x._1.split(",").toSet, x)).join(subsets_cnt).map(x => x._2)
+val subbran_join_subset_cnt = branch_subbran.map(x => (x._2.split(",").toSet, x)).join(subsets_cnt).map(x => x._2)
+val branch_ratio = branch_join_subset_cnt.join(subbran_join_subset_cnt).map(x => (x._1, x._2._1.toFloat / x._2._2.toFloat))
+
+val set_prefix = branch_ratio.filter(_._2 > MIN_CONF)
+
+val conf_prefix_suffix = set_prefix.map(x => (x._2, (x._1._2.split(",").toSet, x._1._1.split(",").toSet -- x._1._2.split(",").toSet)))
+val rule_sets = conf_prefix_suffix.toArray.toList.sortBy(_._1)(Ordering[Float].reverse)
+rule_sets.foreach(println)
