@@ -3,9 +3,9 @@ import Math.ceil
 val MIN_SUP = 0.0003
 val MIN_CONF = 0
 val MAX_RELATION_ORDER = 3
-val DATA_FILE = "datamine/data_m/alarm_bd.txt"
+val DATA_FILE = "input"
 val SEP = "\001"
-val WEI_IDX = 4
+val WEI_IDX = 5
 val MIN_INT_ID_LEN = 5
 
 val rawData = sc.textFile(DATA_FILE).distinct
@@ -26,7 +26,8 @@ def bmin(key: String): Double = {
     }
 }
 
-val flt_sup_cnt = item_count.filter(x => bmin(x._1) <= x._2).toArray.toMap
+val flt_sup_rdd = item_count.filter(x => bmin(x._1) <= x._2)
+val flt_sup_cnt = flt_sup_rdd.toArray.toMap
 
 val alm_with_sc = data.map(x => (x, flt_sup_cnt.getOrElse(x.split(SEP)(1), -1)))
 val flt_alms = alm_with_sc.filter(_._2 > 0)
@@ -65,4 +66,4 @@ def largerThanMinConf(inp: String): Set[(Set[String], Set[String], Double)] = {
 
 val small_tree = flt_tree.filter(_.split(",").size <= MAX_RELATION_ORDER)
 val rule_sets = small_tree.flatMap(largerThanMinConf)
-
+rule_sets.saveAsTextFile("wfp-rules")
