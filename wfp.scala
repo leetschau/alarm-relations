@@ -4,8 +4,8 @@ import scala.io
 val MIN_SUP = 0.004
 val MIN_CONF = 0.1
 val MAX_RELATION_ORDER = 3
-val DATA_FILE = "temple.txt"
-val RES_FILE = "res5k.txt"
+val DATA_FILE = "inp.txt"
+val RES_FILE = "res_rule.txt"
 val SEP = "\001"
 val WEI_IDX = 5
 val MIN_INT_ID_LEN = 5
